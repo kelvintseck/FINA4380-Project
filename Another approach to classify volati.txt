@@ -1,0 +1,17 @@
+Another approach to classify volatility (or add on the original volume indicator):
+3 questions to ask (line 13-15)
+
+Flexible Approach Without Hardcoding
+To avoid hardcoding a specific base count, you could:
+	Normalize Across Cycles: Calculate the average number of bases per bull market (e.g., 3–5 historically) and measure the current cycle’s deviation from this norm, weighted by duration and return.
+	Adaptive Thresholds: Define the "end" as when bases become shorter, deeper, or fail to resolve upward—indicating exhaustion—using real-time data rather than a fixed limit.
+	Machine Learning: Train a model on past bull markets, feeding it price patterns, base counts, and macro indicators to predict turning points dynamically.
+
+Practical Example
+As of March 24, 2025, suppose the S&P 500 is in a bull market that began after a low in late 2022. If it’s rallied 50% so far (21 months in), historical medians suggest it could run another 2 years with a 60% further gain. If you’ve observed 2 bases (e.g., a consolidation in mid-2023 and late 2024), compare this to past cycles:
+
+	1. Are valuations stretched (e.g., CAPE > 30)?
+	2. Is breadth narrowing (fewer stocks at 52-week highs)?
+	3. Are economic indicators weakening?
+
+	If bases start piling up with these warning signs, the bull market might be nearing its end—without needing to say "it ends after X bases."
