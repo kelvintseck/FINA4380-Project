@@ -1,5 +1,5 @@
 # FINA4380A Algorithmic Trading Strategies, Arbitrage and HFT - Trading Algorithm Project
-Please directly upload the latest .py files or .csv files to the main branch.
+Please directly upload the latest .py files or .csv files to the main branch.    
 Update this README.md accordingly if possible.
 
 ## Process
