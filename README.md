@@ -45,6 +45,11 @@ Update this README.md accordingly if possible.
 - Display the final performance metrics.
 - Visualize the performance of the portfolio through plotly.
 
-### util.py
+### config.py
 - Global variables for variates of our trading algorithm.
-- Every .py files that may variate should import **util.py** and alter the computation accordingly.
+- Every .py files that may variate should import **config.py** and alter the computation accordingly.
+
+-----------------------------------------------------------------------------
+
+### DCC-GARCH.ipynb
+- No in use
