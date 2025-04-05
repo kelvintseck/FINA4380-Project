@@ -3,11 +3,10 @@ import numpy as np
 import os
 import scipy.optimize as sc
 import sys
-import math
 import warnings
 import datetime
-from BoardMarketIndex import BoardMarketIndex
-
+from boardMarketIndex import BoardMarketIndex
+import matplotlib.pyplot as plt
 from numba import jit
 
 
@@ -15,6 +14,7 @@ from numba import jit
 Input: list of etf name, 1d array of average returns
 Output: sorted list of etf name with top and positveaverage return
 """
+
 def sort_etf(etf_list, avg_return):
     idx = avg_return.argsort()[::-1]
     avg_return_sorted = avg_return.iloc[idx]
@@ -23,7 +23,6 @@ def sort_etf(etf_list, avg_return):
         filter_no = filter_no + 1
         if avg_return_sorted.iloc[index] == 0:
             break
-    # sorted_list = etf_list[idx][:min(filter_no, 20)] 
     sorted_list = etf_list[idx][:filter_no] 
     return sorted_list
 
@@ -31,48 +30,47 @@ def sort_etf(etf_list, avg_return):
 Objective function to maximize Sharpe Ratio
 """
 
+def get_df_with_rolling(df, row_idx, rolling=360):
+    rolling_idx = row_idx - rolling
+    return df[rolling_idx: row_idx]
+
 @jit(nopython=True)
-def SR(w, mean, cov_mat):
-    # w: weights (1D array), mean: mean returns (1D array), cov_mat: covariance matrix (2D array)
-    vol = np.sqrt(w @ cov_mat @ w)  # Portfolio volatility
-    sr = (mean @ w) / vol           # Sharpe Ratio
-    return -sr                      # Negative for minimization
+def SR(w, mean, cov_mat, avg_return, risk_free):
+    variant_mode = False
+    if variant_mode == True:
+        mu = mean
+    else:
+        mu = avg_return
+    vol = np.sqrt(w @ cov_mat @ w)  
+    sr = (mu @ w - risk_free) / vol           
+    return -sr                      
 
-# Constraint function (not Numba-compiled)
 def Constraint(w):
-    return 1 - np.sum(w)  # Use np.sum for consistency
+    return 0.99 - np.sum(w)  
 
-# Main Smart Beta function
-def Function_SmartBeta(df):
-    # Precompute mean and covariance as NumPy arrays
-    mean = df.mean().to_numpy()      # Shape: (n_assets,)
-    cov_mat = df.cov().to_numpy()    # Shape: (n_assets, n_assets)
+def Function_SmartBeta(df, avg_return, risk_free):
+    mean = df.mean().to_numpy()      
+    cov_mat = df.cov().to_numpy()    
     
-    # Initial weights
     dn = len(df.columns)
-    x_0 = np.ones(dn) / dn  # Equal weights
+    x_0 = np.ones(dn) / dn  
     
-    # Bounds
     ubsmb = 0.4
     lbsmb = 0
-    bndsa = [(lbsmb, ubsmb)] * dn  # List of tuples for each asset
+    bndsa = [(lbsmb, ubsmb)] * dn  
     
-    # Constraint
     cons = {'type': 'eq', 'fun': Constraint}
     
-    # Tolerance and options
     tolerance = 1e-30
     options = {'maxiter': 100}
     
-    # Suppress warnings
     warnings.filterwarnings('ignore', category=RuntimeWarning)
     
-    # Optimize
-    res = sc.minimize(SR, x_0, args=(mean, cov_mat), method='SLSQP', 
+    res = sc.minimize(SR, x_0, args=(mean, cov_mat, np.array(avg_return), risk_free), method='SLSQP', 
                       bounds=bndsa, tol=tolerance, constraints=cons, 
                       options=options)
     
-    return res.x  # Optimized weights
+    return res.x  
 
 """
 @jit(nopython=True)
@@ -110,21 +108,22 @@ def get_weight():
     avg_return_df = pd.read_csv(os.path.join(os.path.dirname(__file__), "average_returns.csv"), index_col=0)
     return_90days_df = pd.read_csv(os.path.join(os.path.dirname(__file__), "returns_90d.csv"), index_col=0)
     return_90days_positive = pd.DataFrame(return_90days_df > 0)
-    
+    risk_free_df = pd.read_csv(os.path.join(os.path.dirname(__file__), "risk_free.csv"), index_col=0)
     avg_return_90days_positive = return_90days_positive * avg_return_df
     etf_list = np.array(avg_return_df.columns)
-
-    position_df = pd.DataFrame(columns=daily_price_df.columns, index=daily_price_df.index)
+    
+    runtime_df = pd.DataFrame(columns=['Time'], index=daily_price_df.index)
     weight_df = pd.DataFrame(float(0), columns=daily_price_df.columns, index=daily_price_df.index)
     #testcount = 0
     last_operation_time = datetime.datetime.now()
     for row_idx in range(len(daily_price_df)):
-        avg_return = avg_return_df.iloc[row_idx]
+        avg_return = avg_return_90days_positive.iloc[row_idx]
         avg_return = avg_return.fillna(0)
         if sum(avg_return) == 0: #Skip date when average return is not yet ready
             continue
         #testcount = testcount + 1
         date = avg_return_df.index[row_idx]
+        risk_free = risk_free_df.iloc[date]
         time1 = datetime.datetime.now()
         #print("Going to initiate class BoardMarketIndex")
         market_index = BoardMarketIndex(os.path.join(os.path.dirname(__file__), "ETFs_daily_prices.csv"), date)
@@ -137,17 +136,25 @@ def get_weight():
         time4 = datetime.datetime.now()
         #print("Finish sorting ETFs. Time used is ", time4 - time3)
         daily_return_top_etf = daily_return_df[sorted_etf_list]
-        weight = Function_SmartBeta(daily_return_top_etf)
+        daily_return_top_etf_with_rolling = get_df_with_rolling(daily_return_top_etf, row_idx)
+        weight = Function_SmartBeta(daily_return_top_etf_with_rolling, avg_return[sorted_etf_list], risk_free)
         time5 = datetime.datetime.now()
         # print(f"Optimization done. Time used is ", time5 - time4)
-        #if testcount == 200:
-            #sys.exit()
-        progress_bar = f"\r\rCurrent date: {date} Current process: {row_idx}/{len(daily_price_df)} [{'#' * int(row_idx * 100/ len(daily_price_df))}{' ' * (100 - int(row_idx * 100/ len(daily_price_df)))}] {int(row_idx * 100/ len(daily_price_df))}% Last operation took {datetime.datetime.now() - last_operation_time}"
+        runtime = datetime.datetime.now() - last_operation_time
+        progress_bar = f"\r\rCurrent date: {date} Current process: {row_idx + 1}/{len(daily_price_df)} [{'#' * int((row_idx + 1) * 100/ len(daily_price_df))}{' ' * (100 - int((row_idx + 1) * 100/ len(daily_price_df)))}] {int((row_idx + 1) * 100/ len(daily_price_df))}% Last operation took {runtime}"
+        runtime_df.loc[date] = runtime
         print(progress_bar, end="")
+        sum_small_weights = 0.01
+        cash_out_criteria = 0.01 # Set cash out condition here
         for idx in range(len(weight)):
+            if weight[idx] <= cash_out_criteria:
+                sum_small_weights += weight[idx]
+                weight[idx] = 0
             weight_df.loc[date, sorted_etf_list[idx]] = weight[idx]
+        weight_df.loc[date, 'cash'] = sum_small_weights
         last_operation_time = datetime.datetime.now()
     weight_df.to_csv(os.path.join(os.path.dirname(__file__), "weight.csv"))
-        
+    runtime_df.plot()
+    plt.show()
 if __name__ == "__main__":
     get_weight()
