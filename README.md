@@ -37,6 +37,7 @@ Update this README.md accordingly if possible.
 
 ### boardMarketIndex.py
 - Separate the ETFs into different groups as an initial assets selection
+- Similar to MarketBreadth: prevent Momentum Crash by not investing in weak groups
 
 ### smartBeta.py
 - Compute the new weights of each asset in the portfolio (and cash)    
