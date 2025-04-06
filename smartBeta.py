@@ -46,7 +46,7 @@ def SR(w, mean, cov_mat, avg_return, risk_free):
     return -sr                      
 
 def Constraint(w):
-    return 0.99 - np.sum(w)  
+    return 1 - np.sum(w)  
 
 def Function_SmartBeta(df, avg_return, risk_free):
     mean = df.mean().to_numpy()      
