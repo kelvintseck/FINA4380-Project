@@ -1,4 +1,3 @@
-
 import numpy as np
 import pandas as pd
 from numpy import linalg
@@ -8,42 +7,41 @@ from typing import List, Dict, Union
 
 
 class BoardMarketIndex:
-    def __init__(self, prices_csv_name: str, trading_date: str):
+    def __init__(self, prices_csv_name: str, momentum_csv_name: str, trading_date: str,
+                 leader_search_by: str = "highest_momentum_score",
+                 correlation_threshold_for_grp: float = 0.5, ma_period: int = 60):
         """
         Initialize the BoardMarketIndex class for ETF market analysis.
 
         Args:
             prices_csv_name (str): Path to CSV file containing ETF price data
+            momentum_csv_name (str): Path to CSV file containing momentum scores
             trading_date (str): Date in 'YYYY-MM-DD' format for analysis standpoint
+            leader_search_by (str): Method to select group leaders ('highest_momentum_score' or 'highest_abs_correlation')
+            correlation_threshold_for_grp (float): Minimum correlation for grouping (default: 0.6)
+            ma_period (int): Moving average period for market breadth (default: 60)
 
         Attributes:
             etf_file_name: CSV file name containing ETF prices
+            momentum_file_name: CSV file name containing momentum scores
             standing_point_date: Date for analysis standpoint
-            ticker_list: List of ETF tickers to analyze
-            correlation_threshold_for_grp: Minimum correlation for grouping (default: 0.5)
-            ma_period: Moving average period for market breadth (default: 60)
+            ticker_list: List of ETF tickers to analyze (read from prices_csv_name)
+            correlation_threshold_for_grp: Minimum correlation for grouping
+            ma_period: Moving average period for market breadth
             prices_df: Filtered price DataFrame
             groups: Dictionary of asset groups
             marketbreadth: Market breadth analysis DataFrame
         """
         self.etf_file_name = prices_csv_name
+        self.momentum_file_name = momentum_csv_name
         self.standing_point_date = trading_date
-        self.ticker_list = ['VGSH', 'SCHO', 'BIL', 'GBIL', 'GOVT', 'SPTI', 'VGLT', 'VTIP', 'SCHP', 'LTPZ',
-                            'VCSH', 'IGIB', 'HYG', 'BKLN', 'SRLN', 'SNLN', 'FLBL', 'BWX', 'IGOV', 'BNDX',
-                            'EMB', 'EMLC', 'HYEM', 'EMHY', 'MUB', 'VTEB', 'TFI', 'MUNI', 'HYMB', 'SHYD',
-                            'HYD', 'GLTR', 'SGOL', 'USO', 'UNG', 'DBE', 'DBA', 'CORN', 'WEAT', 'SOYB',
-                            'CANE', 'DBB', 'JJM', 'COPX', 'REMX', 'UUP', 'FXY', 'FXB', 'CEW', 'BZF',
-                            'FXCH', 'EMFX', 'VIXY', 'SVOL', 'VXXB', 'ETHE', 'ARKB', 'RPAR', 'DIVB', 'AOR',
-                            'VEGI', 'MOO', 'XHB', 'VAW', 'DOW', 'FXZ', 'WOOD', 'CUT', 'FUND', 'JJU',
-                            'FOIL', 'JJC', 'PICK', 'GDX', 'SIVR', 'SIL', 'PPLT', 'PALL', 'KOL', 'SLX',
-                            'PSCL', 'CARZ', 'PBS', 'XRT', 'EMFM', 'PKG', 'XAR', 'PEJ', 'BITE', 'RTH',
-                            'LUXE', 'ONLN', 'IBUY', 'FDIS', 'BETZ', 'JETS', 'TRYP', 'KCE', 'IAI', 'KRE',
-                            'MORT', 'IXIS', 'FINX', 'KIE', 'REZ', 'SRET', 'XLRE', 'PBJ', 'FTXG', 'XLP',
-                            'VICE', 'IBB', 'XBI', 'PJP', 'XPH', 'IHF', 'IHI', 'XHE', 'QCLN', 'ICLN',
-                            'XLU', 'XOP', 'XLE', 'AMLP', 'CRAK', 'URA', 'ITA', 'XTN', 'IYT', 'SEA',
-                            'IGV', 'WCLD', 'SMH', 'TAN']
-        self.correlation_threshold_for_grp = 0.5
-        self.ma_period = 60  # for market breadth standard
+        self.leader_search_by = leader_search_by
+        self.correlation_threshold_for_grp = correlation_threshold_for_grp
+        self.ma_period = ma_period
+
+        # Read the ticker list from the columns of the CSV file
+        initial_list_price_df = pd.read_csv(self.etf_file_name, index_col=0)
+        self.ticker_list = list(initial_list_price_df.columns)
 
         # Initialize with function calls
         self.prices_df = self.get_filtered_data()
@@ -64,35 +62,52 @@ class BoardMarketIndex:
             listing_before_date_dt -= pd.Timedelta(days=1)
             listing_before_date_str = listing_before_date_dt.strftime('%Y-%m-%d')
 
-        # print("Filtering IPO-too-late etf...")
+        print("Filtering IPO-too-late etf...")
         filtered_df = selected_etf_prices.loc[:, selected_etf_prices.loc[listing_before_date_str].notna()]
-        # print("Filtering delisted etf...")
+        print("Filtering delisted etf...")
         filtered_df = filtered_df.loc[:, ~filtered_df.iloc[-1].isna()].dropna()
         return filtered_df
 
     def construct_group_withAsset(self) -> Dict:
-        """Construct groups of assets based on correlation."""
+        """Construct groups of assets based on correlation with configurable leader selection."""
         correlation_matrix = self.prices_df.corr()
-        positive_sums = correlation_matrix.clip(lower=0).sum()
-        ranked_assets = positive_sums.sort_values(ascending=False).reset_index()
-        ranked_assets.columns = ['Asset', 'Positive_Correlation_Sum']
-        ranked_assets['Rank'] = ranked_assets['Positive_Correlation_Sum'].rank(ascending=False)
+
+        # Determine group leaders based on the specified method
+        if self.leader_search_by == "highest_momentum_score":
+            momentum_df = pd.read_csv(self.momentum_file_name, index_col=0)
+            # Filter momentum scores for the trading date
+            if self.standing_point_date in momentum_df.index:
+                momentum_scores = momentum_df.loc[self.standing_point_date]
+                ranked_assets = pd.DataFrame({
+                    'Asset': momentum_scores.index,
+                    'Momentum_Score': momentum_scores.values
+                }).sort_values(by='Momentum_Score', ascending=False)
+                # Filter to only include assets that are in filtered_df
+                ranked_assets = ranked_assets[ranked_assets['Asset'].isin(self.prices_df.columns)]
+            else:
+                raise ValueError(f"No momentum scores found for {self.standing_point_date}")
+        elif self.leader_search_by == "highest_abs_correlation":
+            abs_sums = correlation_matrix.abs().sum()
+            ranked_assets = abs_sums.sort_values(ascending=False).reset_index()
+            ranked_assets.columns = ['Asset', 'Abs_Correlation_Sum']
+        else:
+            raise ValueError("leader_search_by must be 'highest_momentum_score' or 'highest_abs_correlation'")
 
         def group_assets(correlation_matrix, leader_asset, threshold):
             grouped_assets = [leader_asset]
+            # Only iterate over assets that are in the correlation matrix (i.e., in filtered_df)
             for other_asset in correlation_matrix.columns:
                 if other_asset != leader_asset and correlation_matrix.loc[leader_asset, other_asset] >= threshold:
                     grouped_assets.append(other_asset)
             return grouped_assets
 
-        threshold = self.correlation_threshold_for_grp
         groups = {}
         used_assets = set()
 
         for _, row in ranked_assets.iterrows():
             grp_leader_asset = row['Asset']
             if grp_leader_asset not in used_assets:
-                group = group_assets(correlation_matrix, grp_leader_asset, threshold)
+                group = group_assets(correlation_matrix, grp_leader_asset, self.correlation_threshold_for_grp)
                 if len(group) > 0:
                     groups[grp_leader_asset] = group
                     used_assets.update(group)
@@ -100,21 +115,17 @@ class BoardMarketIndex:
         return groups
 
     def get_group_marketbreadth(self) -> pd.DataFrame:
-        """Calculate market breadth for each group."""
-        # Calculate moving averages
+        """Calculate market breadth for each group, avoiding PerformanceWarning with pd.concat."""
         ma_df = self.prices_df.rolling(window=self.ma_period).mean()
-
-        # Join prices with moving averages and drop NaN
         combined_df = self.prices_df.join(ma_df, rsuffix='_MA', how='inner').dropna()
 
-        # Compute all Above_MA columns at once
-        above_ma_columns = {
-            f'{asset}_Above_MA': (combined_df[asset] > combined_df[f'{asset}_MA'])
+        # Precompute Above_MA columns efficiently using pd.concat
+        above_ma_cols = {
+            f'{asset}_Above_MA': (combined_df[asset] > combined_df[f'{asset}_MA']).astype(bool)
             for asset in self.prices_df.columns
         }
-
-        # Add all new columns to combined_df in one operation
-        combined_df = pd.concat([combined_df, pd.DataFrame(above_ma_columns)], axis=1)
+        above_ma_df = pd.concat(above_ma_cols, axis=1)
+        combined_df = pd.concat([combined_df, above_ma_df], axis=1)
 
         momentum_indices = {}
         for start_asset, group in self.groups.items():
@@ -146,10 +157,18 @@ class BoardMarketIndex:
 if __name__ == "__main__":
     # Example usage
     etf_file_name = "ETFs_daily_prices.csv"
-    trading_date = "2011-03-31"
+    momentum_file_name = "average_momentum_returns.csv"
+    trading_date = "2020-03-31"
 
     # Initialize the class
-    market_index = BoardMarketIndex(etf_file_name, trading_date)
+    market_index = BoardMarketIndex(
+        prices_csv_name=etf_file_name,
+        momentum_csv_name=momentum_file_name,
+        trading_date=trading_date,
+        leader_search_by="highest_momentum_score",
+        correlation_threshold_for_grp=0.5,
+        ma_period=60
+    )
 
     # Print some results
     print("\nFiltered Prices DataFrame:")
@@ -163,7 +182,7 @@ if __name__ == "__main__":
     print(market_index.marketbreadth)
 
     # Check specific asset
-    test_asset = "AOR"
+    test_asset = "AGG"
     if market_index.asset_is_in_strong_momentum_group(test_asset):
         print(f"\n{test_asset} is in a strong momentum group!")
     else:
