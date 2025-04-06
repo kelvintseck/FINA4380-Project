@@ -1,10 +1,17 @@
-# backtesting.py
 import pandas as pd
 import numpy as np
+import os
 from typing import Dict, Union, Optional, Tuple
 from datetime import datetime
-
 from IPython.display import display
+
+from scipy.stats import norm
+
+# Global variables (to be included in the config.py)
+ETF_FILE_NAME = "ETFs_daily_prices.csv"
+RF_FILE_NAME = "riskFree.csv"
+
+
 
 class Portfolio:
     """
@@ -24,27 +31,39 @@ class Portfolio:
         transaction_cost (float): Cost per trade as a proportion of trade value (e.g., 0.001 = 0.1%).
     """
     
-    def __init__(self, csv_path: str, start_date: str, transaction_cost: float = 0.001):
+    def __init__(self, etf_path: str, rf_path: str, start_date: str, transaction_cost: float = 0.001):
         """
-        Initialize the portfolio by loading full price data from a CSV file.
-        
+        Initialize the Portfolio with ETF prices and risk-free rates.
+
         Args:
-            csv_path: Path to CSV file with price data (index: dates, columns: asset names).
-            transaction_cost: Transaction cost as a proportion of trade value (default: 0.1%).
+            etf_path: Path to the ETF prices CSV file.
+            rf_path: Path to the daily annualized risk-free rate CSV file.
+            start_date: Starting date for the simulation (e.g., "2018-09-28").
+            transaction_cost: Transaction cost rate (default 0.001 = 0.1%).
         """
-        # Load hidden price data from CSV
-        self.__prices = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+        # Load hidden price data from ETF CSV and RF CSV
+        self.__prices = pd.read_csv(etf_path, index_col=0, parse_dates=True)
+        self.__riskfree = pd.read_csv(rf_path, index_col=0, parse_dates=True)
         # Ensure the index is in datetime format
         self.__prices.index = pd.to_datetime(self.__prices.index)
-        
-        # Initialize visible prices with the first day
-        self.visible_prices = pd.DataFrame(index=self.__prices.index[:1], columns=self.__prices.columns)
-        self.visible_prices.iloc[0] = self.__prices.iloc[0]
+        self.__riskfree.index = pd.to_datetime(self.__riskfree.index, format="%d/%m/%Y")
+        # Trim risk-free rates to match ETF prices' start date
+        self.__riskfree = self.__riskfree.loc[self.__prices.index.min():]
+    
         
         # Convert user-specified start_date to datetime
         start_date = pd.to_datetime(start_date)
+        if start_date < self.__prices.index[0]:
+            raise ValueError(f"Start date {start_date.date()} not found in price data. The earliest date is {self.__prices.index[0].date()}")
+        if start_date > self.__prices.index[-1]:
+            raise ValueError(f"Start date {start_date.date()} not found in price data. The latest date is {self.__prices.index[1-1].date()}")
         if start_date not in self.__prices.index:
-            raise ValueError(f"Start date {start_date} not found in price data.")
+            start_date = self.__prices.index[self.__prices.index > start_date].min()
+            print(f"Set start date to the next nearest trading date: {start_date.date()}")
+        
+        # Initialize visible prices and riskfree rates
+        self.visible_prices = self.__prices.loc[:start_date].copy()
+        self.visible_rf = self.__riskfree.loc[:start_date].copy()
         
         # Set current_date to user-specified date
         self.current_date = start_date
@@ -57,7 +76,7 @@ class Portfolio:
         self.value = pd.Series(index=[self.current_date], data=self.init_cash, dtype='float64')
         self.returns = pd.Series(index=[self.current_date], data=0.0, dtype='float64')
         self.weights = pd.DataFrame(index=[self.current_date], columns=self.__prices.columns, data=0.0, dtype='float64')
-
+        
 
     def advance_date(self, days: int = 1) -> None:
         """
@@ -78,11 +97,14 @@ class Portfolio:
             
             self.current_date = self.__prices.index[new_idx]
             self.visible_prices.loc[self.current_date] = self.__prices.loc[self.current_date]
+            self.visible_rf.loc[self.current_date] = self.__riskfree.loc[self.current_date]
             
             # Update portfolio state based on price changes
             current_prices = self.visible_prices.loc[self.current_date]
             asset_value = (self.positions.iloc[-1] * current_prices).sum()
-            new_cash = self.cash.iloc[-1]  # Unchanged
+            new_cash = (self.cash.iloc[-1] * 
+                       self.visible_rf.loc[self.current_date]["Compounded Value"] / 
+                       self.visible_rf.loc[:self.current_date]["Compounded Value"].shift(1).loc[self.current_date])   # cash get compounded 
             new_value = new_cash + asset_value
             new_returns = (new_value / self.value.iloc[-1]) - 1 if len(self.value) > 1 else 0.0
             
@@ -209,64 +231,124 @@ class Portfolio:
             "cash": self.cash.copy().tail(days),
             "value": self.value.copy().tail(days),
             "returns": self.returns.copy().tail(days),
-            "weights": self.weights.copy().tail(days)
+            "weights": self.weights.copy().tail(days),
+            "riskfree rates": self.visible_rf.copy().tail(days)
         }
 
 
-    # Performance Metrics  (should return as a dataframe?)
-    def cumulative_return(self) -> float:
-        return (self.value.iloc[-1] / self.value.iloc[0]) - 1
-
-    def annualized_return(self, periods_per_year: int = 252) -> float:
-        return (self.value.iloc[-1] / self.value.iloc[0]) ** (365 / (len(self.value)-1)) - 1 if len(self.value) > 1 else 0.0
-
-    def annualized_volatility(self, periods_per_year: int = 252) -> float:
-        return self.returns.std() * np.sqrt(periods_per_year) if len(self.returns) > 1 else 0.0
-
+    # Performance Metrics
+    def compute_daily_metrics(self, days: int = 252, alpha: float = 0.05) -> pd.DataFrame:
+        """
+        Compute comprehensive daily performance metrics including:
+        - Cumulative Return
+        - Annualized Return
+        - Annualized Volatility (trailing 252D)
+        - Annualized Sharpe Ratio (trailing 252D)
+        - Sortino Ratio (trailing 252D)
+        - Drawdown (cumulative)
+        - Max Drawdown (cumulative)
+        - Calmar Ratio (trailing 36M = 756D)
+        - Value-at-Risk (trailing 252D)
+        - Expected Shortfall (trailing 252D)
+        
+        Parameters:
+            days: int, trading days per year
+            alpha: float, confidence level for VaR/ES (e.g., 0.05 for 95%)
+        """
+        if len(self.returns) < 1:
+            return pd.DataFrame()
+        
+        metrics = pd.DataFrame(index=self.returns.index)
+        
+        # 1. Cumulative Return
+        metrics['Cumulative Return'] = (self.value / self.value.iloc[0]) - 1
+        
+        # 2. Annualized Return
+        days_elapsed = np.arange(1, len(self.returns) + 1) 
+        metrics['Annualized Return'] = (1 + metrics['Cumulative Return']) ** (365 / days_elapsed) - 1
+        
+        # 3. Annualized Volatility (trailing 252D)
+        metrics['Annualized Volatility'] = self.returns.rolling(window=days).std() * np.sqrt(days)
+        
+        # 4. Annualized Sharpe Ratio (trailing 252D)
+        excess_returns = self.returns - (self.visible_rf["Rate"]/days)
+        metrics['Sharpe Ratio'] = (
+            excess_returns.rolling(days).mean() / 
+            self.returns.rolling(days).std() * 
+            np.sqrt(days)
+        )
+        
+        # 5. Sortino Ratio (trailing 252D)
+        downside_returns = np.minimum(self.returns, 0)
+        metrics['Sortino Ratio'] = (
+            (self.returns.rolling(days).mean() - self.visible_rf["Rate"]/days) / 
+            downside_returns.rolling(days).std() * 
+            np.sqrt(days)
+        )
+        
+        # 6. Drawdown (cumulative)
+        rolling_max = self.value.rolling(window=len(self.value), min_periods=1).max()
+        metrics['Drawdown'] = self.value / rolling_max - 1
+        
+        # 7. Max Drawdown (cumulative)
+        metrics['Max Drawdown'] = metrics['Drawdown'].rolling(window=len(self.value), min_periods=1).min()
+        
+        # 8. Calmar Ratio (trailing 36M = 756D)
+        metrics['Calmar Ratio'] = (
+            metrics['Annualized Return'].rolling(756).mean() / 
+            metrics['Max Drawdown'].rolling(756).min().abs()
+        )
+        
+        # 9. Value-at-Risk (trailing 252D)
+        metrics['VaR'] = self.returns.rolling(days).quantile(alpha)
+        
+        # 10. Expected Shortfall (trailing 252D)
+        def calc_es(series):
+            if len(series.dropna()) < 5:
+                return np.nan
+            return series[series <= series.quantile(alpha)].mean()
+        
+        metrics['Expected Shortfall'] = self.returns.rolling(days).apply(calc_es)
+        
+        return metrics
+    
+    
 
 
 if __name__ == "__main__":   # For testing and debugging
-    etf_tickers = [
-        "SPY",   # Broad market: S&P 500
-        "QQQ",   # Broad market: Nasdaq-100
-        "VTI",   # Broad market: Total US stock
-        "IWM",   # Small-cap: Russell 2000
-        "XLK",   # Sector: Technology
-        "XLV",   # Sector: Healthcare
-        "XLF",   # Sector: Financials
-        "XLE",   # Sector: Energy
-        "XLI",   # Sector: Industrials
-        "XLY",   # Sector: Consumer Discretionary
-        "XLP",   # Sector: Consumer Staples
-        "XLB",   # Sector: Materials
-        "XLRE",  # Sector: Real Estate
-        "XLU",   # Sector: Utilities
-        "GLD",   # Commodity: Gold
-        "USO",   # Commodity: Oil
-        "TLT",   # Bond: 20+ Year Treasuries
-        "LQD",   # Bond: Corporate bonds
-        "EEM",   # Emerging markets
-        "VXUS"   # International ex-US
-    ]
-    file_path = "/Users/chakkwantse/Desktop/FINA4380 Group 4 codes/backtesting/prices.csv"
+    folder_path = os.path.dirname(__file__)   # Put this .py file together with .csv files
+    file_ETFs = os.path.join(folder_path, ETF_FILE_NAME)   # Contain the historical prices of our stocks universe
+    file_rf = os.path.join(folder_path, RF_FILE_NAME)   # Contain the historical annualized riskfree rates
+    
 
-    # Assume 'prices.csv' exists with format: index (dates), columns (AAPL, GOOG, etc.)
-    portfolio = Portfolio(file_path, start_date = "2015-10-08", transaction_cost=0.001)
-    for i in range(1000):    
+    portfolio = Portfolio(file_ETFs, file_rf, start_date = "2015-10-08", transaction_cost = 0.001)
+    for i in range(2000):    
         # rnt1 = np.random.uniform(0,1)
         # rnt2 = np.random.uniform(0, 1-rnt1)
         # print(rnt1, rnt2, 1-rnt1-rnt2)
-        curr_data = portfolio.get_current_data()
+        # curr_data = portfolio.get_current_data()
         # print(curr_data["weights"])
         # portfolio.rebalance({"GLD": rnt1, "XLY": rnt2, "cash": 1-rnt1-rnt2})
-        portfolio.rebalance({"EEM": 0.2, "XLY": 0.7, "cash": 0.1})
+        portfolio.rebalance({"EWC": np.random.uniform(0,0.3), "SUSA": np.random.uniform(0,0.3), "IJH": np.random.uniform(0,0.3)})
         portfolio.advance_date()
         
     
     all = portfolio.get_history()
-    # import matplotlib.pyplot as plt
+    
     for key, df in all.items():
         print("="*40 + f"  {key}  " + "="*40)
         with pd.option_context('display.float_format', '{:.10}'.format):
             display(df)
+    
+    
+    performance = portfolio.compute_daily_metrics()
+    display(performance)
+    
+    
+    
+    from visualization import create_portfolio_dashboard
+    create_portfolio_dashboard(portfolio, performance, os.path.join(folder_path, "portfolio_evaluation.html"))
+    
+    
+    
     
