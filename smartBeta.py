@@ -16,6 +16,8 @@ CASH_OUT_THRESHOLD = 0.01
 TOLERANCE = 1e-30
 MAX_ITERATIONS = 100
 VARIANT = False
+PARTIALDAY = 1825
+PARTIAL = True
 
 def load_data(file_dir):
     """Load all required data files."""
@@ -86,14 +88,22 @@ def calculate_portfolio_weights():
     weights_df = pd.DataFrame(0.0, columns=list(data['prices'].columns) + ['cash'], 
                             index=data['prices'].index)
     runtime_df = pd.DataFrame(columns=['Time'], index=data['prices'].index)
-    
-    for idx, date in enumerate(data['prices'].iloc[1825:].index):
+
+    if PARTIAL == True:
+        df = data['prices'].iloc[:PARTIALDAY]
+    else:
+        df = data['prices']
+        
+    for idx, date in enumerate(df.index):
         start_time = datetime.datetime.now()
         # Skip if no valid average returns
-        current_avg_returns = data['avg_returns'].iloc[idx].fillna(0) * data['returns_90d'].iloc[idx].fillna(0)
+        current_avg_returns = data['avg_returns'].loc[date].fillna(0) * data['returns_90d'].loc[date].fillna(0)
         if current_avg_returns.sum() <= 0:
             continue
-        risk_free_rate = data['risk_free'].iloc[idx].iloc[0]
+        try:
+            risk_free_rate = data['risk_free'].loc[date].iloc[0]
+        except:
+            risk_free_rate = 0
         market_index = BoardMarketIndex(os.path.join(file_dir, "ETFs_daily_prices.csv"), os.path.join(file_dir, "average_momentum_returns.csv"), date.strftime('%Y-%m-%d'))
         
         # Identify ETFs with strong momentum
@@ -122,7 +132,7 @@ def calculate_portfolio_weights():
         # Track runtime and show progress
         runtime = datetime.datetime.now() - start_time
         runtime_df.loc[date] = runtime.total_seconds()
-        progress = (idx + 1) / len(data['prices'])
+        progress = (idx + 1) / len(data['partial'])
         print(f"\rProcessing {date.strftime('%Y-%m-%d')}: {progress:.1%} [{'#' * int(progress * 100)}{' ' * (100 - int(progress * 100))}] Runtime of last operation: {runtime}", end="")
 
     # Save results and plot runtime
