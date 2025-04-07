@@ -5,6 +5,14 @@ from datetime import datetime, timedelta
 from scipy.linalg import inv as inv
 from typing import List, Dict, Union
 
+BMI_LEADER_SEARCH_BY = "highest_momentum_score" # 'highest_abs_correlation'
+BMI_CORRELATION_THRESHOLD_FOR_GRP = 0.5 # 0.6, 0.7
+BMI_MA_PERIOD = 60 # 200
+
+"""
+right now, the groups has overlapped tickers. but it also confirms when the tickers are in a really bad spot
+BMI_OVERLAPPED_TICKERS_ALLOWED = TRUE
+"""
 
 class BoardMarketIndex:
     def __init__(self, prices_csv_name: str, momentum_csv_name: str, trading_date: str,
@@ -62,9 +70,9 @@ class BoardMarketIndex:
             listing_before_date_dt -= pd.Timedelta(days=1)
             listing_before_date_str = listing_before_date_dt.strftime('%Y-%m-%d')
 
-        print("Filtering IPO-too-late etf...")
+
         filtered_df = selected_etf_prices.loc[:, selected_etf_prices.loc[listing_before_date_str].notna()]
-        print("Filtering delisted etf...")
+
         filtered_df = filtered_df.loc[:, ~filtered_df.iloc[-1].isna()].dropna()
         return filtered_df
 
@@ -158,16 +166,16 @@ if __name__ == "__main__":
     # Example usage
     etf_file_name = "ETFs_daily_prices.csv"
     momentum_file_name = "average_momentum_returns.csv"
-    trading_date = "2020-03-31"
+    trading_date = "2020-04-28"
 
     # Initialize the class
     market_index = BoardMarketIndex(
         prices_csv_name=etf_file_name,
         momentum_csv_name=momentum_file_name,
         trading_date=trading_date,
-        leader_search_by="highest_momentum_score",
-        correlation_threshold_for_grp=0.5,
-        ma_period=60
+        leader_search_by=BMI_LEADER_SEARCH_BY,
+        correlation_threshold_for_grp=BMI_CORRELATION_THRESHOLD_FOR_GRP,
+        ma_period=BMI_MA_PERIOD
     )
 
     # Print some results
