@@ -149,8 +149,10 @@ class Portfolio:
             ValueError: If the sum of weights exceeds 1.
         """
         total_weight = sum(new_weights.values())
-        if not total_weight <= 1:
+        if not total_weight <= 1.001:
+            print(self.current_date, total_weight)
             raise ValueError("Weights must sum to 1 or less.")
+        new_weights = {key: value/total_weight for key, value in new_weights.items()}   # Force the total weight = 1
         
         # Current portfolio value
         current_prices = self.visible_prices.loc[self.current_date]
@@ -190,8 +192,11 @@ class Portfolio:
             ValueError: If the sum of weights exceeds 1.
         """
         total_weight = sum(new_weights.values())
-        if not total_weight <= 1:
+        if not total_weight <= 1.001:
+            print(self.current_date, total_weight)
             raise ValueError("Weights must sum to 1 or less.")
+        new_weights = {key: value/total_weight for key, value in new_weights.items()}   # Force the total weight = 1
+        
         
         current_prices, current_value, new_positions, cash_weight, cost = self.calculate_transaction_cost(
             new_weights, is_rebalance=True
@@ -202,13 +207,18 @@ class Portfolio:
         if new_cash < cash_weight * current_value:
             shortfall = cash_weight * current_value - new_cash
             asset_value -= shortfall
-            # new_positions *= (asset_value / (new_positions * current_prices).sum())
             """---------------------------------------------------------------------------"""
+            if new_positions.sum() != 0:    # Not only holding cash 
+                new_positions *= (asset_value / (new_positions * current_prices).sum())
+            """
             denominator = (new_positions * current_prices).sum()
             if denominator == 0:
+                with pd.option_context('display.max_rows', 100000, 'display.max_columns', 1000000):
+                    display(new_positions, current_prices)
                 raise ValueError(f"Error: Division by zero encountered. Denominator value: {new_positions} & {current_prices}")
             else:
                 new_positions *= (asset_value / denominator)
+            """
             """---------------------------------------------------------------------------"""
             new_cash = cash_weight * current_value
         
@@ -328,14 +338,18 @@ if __name__ == "__main__":   # For testing and debugging
     file_rf = os.path.join(folder_path, RF_FILE_NAME)   # Contain the historical annualized riskfree rates
     file_weight = os.path.join(folder_path, W_FILE_NAME)
 
-    portfolio = Portfolio(file_ETFs, file_rf, start_date = "2015-10-08", transaction_cost = 0.001)
+    portfolio = Portfolio(file_ETFs, file_rf, start_date = "2002-03-05", transaction_cost = 0.001)
     weights = pd.read_csv(file_weight, index_col=0)[1500:].to_dict(orient='list') # start to have valid data (non 0 weights) around 1500
     for i in range(len(weights["cash"])):
+        print(f"\r\r processing {portfolio.current_date.date()}", end="")
         cur_weight = {}
         for key in weights.keys():
             cur_weight[key] = weights[key][i]
         portfolio.rebalance(cur_weight)
-        portfolio.advance_date()
+        try:
+            portfolio.advance_date()
+        except ValueError:
+            break
 
     # for i in range(2000):
     #     # rnt1 = np.random.uniform(0,1)
