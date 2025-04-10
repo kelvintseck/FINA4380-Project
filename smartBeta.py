@@ -21,26 +21,27 @@ PARTIALPERIOD = 30
 PARTIAL = False  # Base case: False
 
 # Swithch for variants
-VARIANT_SR_MU = False  # Base Case = False; Variant: True
-VARIANT_OPTIMAL_FUNCTION = 'SR'  # Base case: 'SR'; Variants: 'RP', 'GMV', 'DR'
+VARIANT_OPTIMAL_FUNCTION = 'DR'  # Base case: 'SR'; Variants: 'RP', 'GMV', 'DR'
 VARIANT_TIME_INTERVAL = 'quarterly'  # Base case: 'daily'; Variants: 'monthly', 'weekly', 'quarterly', 'yearly'
+VARIANT_SR_MU = False  # Base Case = False; Variant: True
 VARIANT_REMOVE_MOMENTUM = False # Base case: False; Variant: True # To ignore momentum return in calculation
 VARIANT_REMOVE_90DAYS = False # Base case: False; Variant: True
-VARIANT_REMOVE_BMI = True # Base case: False; Variant: True # To ignore BroadMarketIndex in calculation
-BMI_LEADER_SEARCH_BY = "highest_abs_correlation" # Base Case = "highest_abs_correlation"; Var: 'highest_momentum_score'
-BMI_CORRELATION_THRESHOLD_FOR_GRP = 0.7 # Base Case = 0.5; Var = 0.5, 0.6
-BMI_MA_PERIOD = 60 # Base Case = 60; Var = 200
+VARIANT_REMOVE_BMI = False # Base case: False; Variant: True # To ignore BroadMarketIndex in calculation
+BMI_LEADER_SEARCH_BY = "highest_abs_correlation" # Base Case = "highest_abs_correlation"; Variant: 'highest_momentum_score'
+BMI_CORRELATION_THRESHOLD_FOR_GRP = 0.7 # Base Case = 0.7; Variant = 0.9, -1
+BMI_MA_PERIOD = 60 # Base Case = 60; Variant = 2, 200
 
 def variant_case():
     case_name = ""
-    if VARIANT_SR_MU == True:
-        case_name += "_SR_MU"
     if VARIANT_OPTIMAL_FUNCTION != 'SR':
         case_name += f"_{VARIANT_OPTIMAL_FUNCTION}"
-    if VARIANT_TIME_INTERVAL != 'daily':
-        case_name += f"_{VARIANT_TIME_INTERVAL}"
+    case_name += f"_{VARIANT_TIME_INTERVAL}"
+    if VARIANT_SR_MU == True:
+        case_name += "_MU"
     if VARIANT_REMOVE_MOMENTUM == True:
         case_name += "_XMomum"
+    if VARIANT_REMOVE_90DAYS == True:
+        case_name += "_X90days"
     if VARIANT_REMOVE_BMI == True:
         case_name += "_XBMI"
     if BMI_LEADER_SEARCH_BY != 'highest_abs_correlation':
@@ -48,12 +49,12 @@ def variant_case():
     if BMI_CORRELATION_THRESHOLD_FOR_GRP != 0.7:
         case_name += f"_GrpCorr{BMI_CORRELATION_THRESHOLD_FOR_GRP}"
     if BMI_MA_PERIOD != 60:
-        case_name += "_200MA"
+        case_name += f"_{BMI_MA_PERIOD}MA"
 
     match case_name:
-        case "":
+        case "_quarterly":
             case_name = "_Base"
-        case "_SR_MU_Xmomentum_XBMI":
+        case "_quarterly_MU_XMomum_X90days_XBMI":
             case_name = "_control_case"
     return case_name
 
@@ -69,7 +70,7 @@ def load_data(file_dir):
     data = {key: pd.read_csv(os.path.join(file_dir, filename), index_col=0, parse_dates=True, dayfirst=True, date_format='%Y-%m-%d')
             for key, filename in files.items()}
     # Preprocess data
-    data['returns_90d'] = data['returns_90d'].fillna(0) >= 0
+    data['returns_90d'] = (data['returns_90d'].fillna(0) >= 0)
     data['prices_yearly'] = data['prices'].resample('YE').last()    
     data['prices_quarterly'] = data['prices'].resample('QE').last()    
     data['prices_monthly'] = data['prices'].resample('ME').last()
@@ -109,9 +110,10 @@ def calc_glob_min_var(weights, cov_matrix):
 def calc_risk_parity(weights, cov_matrix):
     vol = np.sqrt(np.dot(np.dot(weights, cov_matrix), weights.T))
     marginal_contribution = np.dot(cov_matrix, weights.T) / vol
-    r = (vol / weights.shape - weights * marginal_contribution.T)
+    r = (vol / weights - weights * marginal_contribution.T)
     return np.dot(r, r.T)
 
+@jit(nopython=True)
 def calc_negative_diversification_ratio(weights, cov_matrix):
     numerator = np.sqrt(np.diag(cov_matrix)) @ weights.T
     denominator = np.sqrt(weights.T @ cov_matrix @ weights)
@@ -124,8 +126,9 @@ def optimize_weights(rolling_returns, current_returns, risk_free):
     cov_matrix = rolling_returns.fillna(0).cov().to_numpy()
     initial_weights = np.ones(num_assets) / num_assets
     bndsa = [(MIN_WEIGHT, MAX_WEIGHT)] * num_assets
-    cons = {'type': 'eq', 'fun': lambda w: 1 - np.sum(w)}
+    cons = {'type': 'eq', 'fun': lambda w: 0.99 - np.sum(w)}
     warnings.filterwarnings('ignore', category=RuntimeWarning)
+
     match VARIANT_OPTIMAL_FUNCTION:
         case 'GMV':
             optimal_function = calc_glob_min_var
@@ -158,16 +161,13 @@ def get_rolling_data(df, current_idx, window=ROLLING_WINDOW):
     start_idx = max(0, current_idx - window)
     return df.iloc[start_idx:current_idx]
 
-@jit(nopython=True)
-def adjust_weight(df, date_list):
-    row_count = -1
-    for row in df.index:
-        row_count += 1
-        if row not in date_list:
-            new_row = df.index[row_count - 1]
-            df.loc[row] = df.loc[new_row]
-    return df
-
+def progress_bar(date, idx, df, start_time, initial_time):
+    # Track runtime and show progress
+    runtime = datetime.datetime.now() - start_time
+    total_runtime = datetime.datetime.now() - initial_time
+    progress = (idx + 1) / len(df)
+    print( f"\rProcessing {date}: {progress:.1%} [{'#' * int(progress * 100)}{' ' * (100 - int(progress * 100))}] Last runtime: {runtime} Total runtime: {total_runtime}",
+            end="")    
 def calculate_portfolio_weights():
     """Main function to calculate and save portfolio weights."""
     initial_time = datetime.datetime.now()
@@ -210,6 +210,7 @@ def calculate_portfolio_weights():
         start_time = datetime.datetime.now()
 
         # Adjust date when the date in weekly/ monthly returns does not fit with actual data file
+        date_rolling_return = date
         valid = False
         while valid == False:
             try: 
@@ -218,13 +219,14 @@ def calculate_portfolio_weights():
                 valid = True
             except:
                 date -= datetime.timedelta(days=1)
-
         rolling_returns = get_rolling_data(df_return, idx)
         try: # Skip first day as there is no return item on first day
-            NONNA_Count = rolling_returns.loc[date].count().sum()
+            NONNA_Count = rolling_returns.loc[date_rolling_return].count().sum()
         except:
+            progress_bar(date, idx, df, start_time, initial_time)
             continue
         if NONNA_Count < 2: # Should have at least 2 ETFs to construct covariance matrix  
+            progress_bar(date, idx, df, start_time, initial_time)
             continue      
         # For control case
         means = rolling_returns.mean()
@@ -237,6 +239,7 @@ def calculate_portfolio_weights():
         else: # Use Rolling return instead of momentum return for remove momentum Variant case
             current_returns = means
         if current_returns.fillna(0).sum() <= 0:  # Skip finding weights when no ETF passes requirements
+            progress_bar(date, idx, df, start_time, initial_time)
             continue
 
         try: # Find the effective risk free rate for the time interval of investing
@@ -255,7 +258,7 @@ def calculate_portfolio_weights():
             risk_free_rate = data['risk_free'].loc[date].iloc[0] / 100 / time
         except:
             risk_free_rate = 0
-       
+      
         if VARIANT_REMOVE_BMI == False: # Filter for ETF that does not belongs to strong momentum group according to BMI
             market_index = BoardMarketIndex(os.path.join(file_dir, "ETFs_daily_prices.csv"),
                                             os.path.join(file_dir, "average_momentum_returns.csv"),
@@ -272,11 +275,13 @@ def calculate_portfolio_weights():
             filtered_return = current_returns
 
         if filtered_return.fillna(0).sum() <= 0: # Skip finding weights if performance of stock is bad
+            progress_bar(date, idx, df, start_time, initial_time)
             continue
 
         # Get top performing ETFs
         top_etfs = get_top_etfs(etf_list, filtered_return)
         if len(top_etfs) <= 1: # Do not invest if there is no suitable ETF; At least invest in two ETFs
+            progress_bar(date, idx, df, start_time, initial_time)
             continue
 
         # Optimize weights
@@ -291,23 +296,23 @@ def calculate_portfolio_weights():
                 weights_df.loc[date, top_etfs[i]] = weight
                 weight_sum += weight
         weights_df.loc[date, 'cash'] = 1 - weight_sum
-        # Track runtime and show progress
-        runtime = datetime.datetime.now() - start_time
-        total_runtime = datetime.datetime.now() - initial_time
-        runtime_df.loc[date] = runtime.total_seconds()
-        progress = (idx + 1) / len(df)
-        print( f"\rProcessing {date}: {progress:.1%} [{'#' * int(progress * 100)}{' ' * (100 - int(progress * 100))}] Last runtime: {runtime} Total runtime: {total_runtime}",
-              end="")
+
+        progress_bar(date, idx, df, start_time, initial_time)
 
     if VARIANT_TIME_INTERVAL != 'daily':
         print("\nAdjusting weights for non-trading date", end="")
-        weights_df = adjust_weight(weights_df, date_list)
+        row_count = 0
+        for row in weights_df.index[1:]:
+            row_count += 1
+            if row not in date_list:
+                new_row = weights_df.index[row_count - 1]
+                weights_df.loc[row] = weights_df.loc[new_row]
 
     # Create output files for weights and runtime
     weight_filename = "weight" + variant_case() + ".csv"
     weights_df.to_csv(os.path.join(file_dir, weight_filename))
     runtime_filename = "runtime" + variant_case() + ".csv"
-    runtime_df.to_csv(os.path.join(file_dir, runtime_filename))
+    #runtime_df.to_csv(os.path.join(file_dir, runtime_filename))
     print("\nCreated weight and runtime csv files")
 
 if __name__ == "__main__":
