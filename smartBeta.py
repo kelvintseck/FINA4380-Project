@@ -23,7 +23,7 @@ PARTIAL = False  # Base case: False
 # Swithch for variants
 VARIANT_SR_MU = False  # Base Case = False; Variant: True
 VARIANT_OPTIMAL_FUNCTION = 'SR'  # Base case: 'SR'; Variants: 'RP', 'GMV', 'DR'
-VARIANT_TIME_INTERVAL = 'weekly'  # Base case: 'daily'; Variants: 'monthly', 'weekly', 'quarterly', 'yearly'
+VARIANT_TIME_INTERVAL = 'quarterly'  # Base case: 'daily'; Variants: 'monthly', 'weekly', 'quarterly', 'yearly'
 VARIANT_REMOVE_MOMENTUM = False # Base case: False; Variant: True # To ignore momentum return in calculation
 VARIANT_REMOVE_BMI = False # Base case: False; Variant: True # To ignore BroadMarketIndex in calculation
 BMI_LEADER_SEARCH_BY = "highest_abs_correlation" # Base Case = "highest_abs_correlation"; Var: 'highest_momentum_score'
@@ -227,12 +227,18 @@ def calculate_portfolio_weights():
             continue
 
         try: # Find the effective risk free rate for the time interval of investing
-            if VARIANT_TIME_INTERVAL == 'monthly':
-                time = 12
-            elif VARIANT_TIME_INTERVAL == 'weekly':
-                time = 52
-            else:
-                time = 365
+            match VARIANT_TIME_INTERVAL:
+                case 'yearly':
+                    time = 1
+                case 'quarterly':
+                    time = 4
+                case 'monthly':
+                    time = 12
+                case 'weekly':
+                    time = 52
+                case 'daily':
+                    time = 365
+
             risk_free_rate = data['risk_free'].loc[date].iloc[0] / 100 / time
         except:
             risk_free_rate = 0
@@ -279,14 +285,15 @@ def calculate_portfolio_weights():
         progress = (idx + 1) / len(df)
         print( f"\rProcessing {date}: {progress:.1%} [{'#' * int(progress * 100)}{' ' * (100 - int(progress * 100))}] Last runtime: {runtime} Total runtime: {total_runtime}",
               end="")
-    print(date_list)
-    # if VARIANT_TIME_INTERVAL != 'daily':
-    row_count = -1
-    for row in weights_df.index:
-        row_count += 1
-        if row not in date_list:
-            new_row = weights_df.index[row_count - 1]
-            weights_df.loc[row] = weights_df.loc[new_row]
+
+    if VARIANT_TIME_INTERVAL != 'daily':
+        print("Adjusting weights for non-trading date")
+        row_count = -1
+        for row in weights_df.index:
+            row_count += 1
+            if row not in date_list:
+                new_row = weights_df.index[row_count - 1]
+                weights_df.loc[row] = weights_df.loc[new_row]
     # Create output files for weights and runtime
     weight_filename = "weight" + variant_case() + ".csv"
     weights_df.to_csv(os.path.join(file_dir, weight_filename))
