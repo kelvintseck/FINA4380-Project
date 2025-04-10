@@ -17,17 +17,17 @@ TOLERANCE = 1e-30
 MAX_ITERATIONS = 100
 
 # Switch for partial run
-PARTIALPERIOD = 1825
+PARTIALPERIOD = 30
 PARTIAL = False  # Base case: False
 
 # Swithch for variants
-VARIANT_SR_MU = True  # Base Case = False; Variant: True
+VARIANT_SR_MU = False  # Base Case = False; Variant: True
 VARIANT_OPTIMAL_FUNCTION = 'SR'  # Base case: 'SR'; Variants: 'RP', 'GMV', 'DR'
-VARIANT_TIME_INTERVAL = 'daily'  # Base case: 'daily'; Variants: 'monthly', 'weekly'
+VARIANT_TIME_INTERVAL = 'weekly'  # Base case: 'daily'; Variants: 'monthly', 'weekly', 'quarterly', 'yearly'
 VARIANT_REMOVE_MOMENTUM = False # Base case: False; Variant: True # To ignore momentum return in calculation
-VARIANT_REMOVE_BMI = True # Base case: False; Variant: True # To ignore BroadMarketIndex in calculation
-BMI_LEADER_SEARCH_BY = "highest_abs_correlation" # Base Case = "highest_momentum_score"; Var: 'highest_abs_correlation'
-BMI_CORRELATION_THRESHOLD_FOR_GRP = 0.7 # Base Case = 0.5; Var = 0.6, 0.7
+VARIANT_REMOVE_BMI = False # Base case: False; Variant: True # To ignore BroadMarketIndex in calculation
+BMI_LEADER_SEARCH_BY = "highest_abs_correlation" # Base Case = "highest_abs_correlation"; Var: 'highest_momentum_score'
+BMI_CORRELATION_THRESHOLD_FOR_GRP = 0.7 # Base Case = 0.5; Var = 0.5, 0.6
 BMI_MA_PERIOD = 60 # Base Case = 60; Var = 200
 
 def variant_case():
@@ -42,9 +42,9 @@ def variant_case():
         case_name += "_Xmomentum"
     if VARIANT_REMOVE_BMI == True:
         case_name += "_XBMI"
-    if BMI_LEADER_SEARCH_BY != 'highest_momentum_score':
-        case_name += "_AbsCorr"
-    if BMI_CORRELATION_THRESHOLD_FOR_GRP != 0.5:
+    if BMI_LEADER_SEARCH_BY != 'highest_abs_correlation':
+        case_name += "_MomenScore"
+    if BMI_CORRELATION_THRESHOLD_FOR_GRP != 0.7:
         case_name += f"_GrpCorr{BMI_CORRELATION_THRESHOLD_FOR_GRP}"
     if BMI_MA_PERIOD != 60:
         case_name += "_200MA"
@@ -68,11 +68,16 @@ def load_data(file_dir):
     data = {key: pd.read_csv(os.path.join(file_dir, filename), index_col=0, parse_dates=True, dayfirst=True, date_format='%Y-%m-%d')
             for key, filename in files.items()}
     # Preprocess data
+    data['returns_90d'] = data['returns_90d'].fillna(0) >= 0
+    data['prices_yearly'] = data['prices'].resample('YE').last()    
+    data['prices_quarterly'] = data['prices'].resample('QE').last()    
     data['prices_monthly'] = data['prices'].resample('ME').last()
     data['prices_weekly'] = data['prices'].resample('W-MON').last()
-    data['daily_returns'] = data['prices'].pct_change().tail(-1)
+    data['yearly_returns'] = data['prices_yearly'].pct_change().tail(-1)
+    data['quarterly_returns'] = data['prices_quarterly'].pct_change().tail(-1)
     data['monthly_returns'] = data['prices_monthly'].pct_change().tail(-1)
     data['weekly_returns'] = data['prices_weekly'].pct_change().tail(-1)
+    data['daily_returns'] = data['prices'].pct_change().tail(-1)
     return data
 
 def get_top_etfs(etf_list, filtered_returns):
@@ -120,18 +125,20 @@ def optimize_weights(rolling_returns, current_returns, risk_free):
     bndsa = [(MIN_WEIGHT, MAX_WEIGHT)] * num_assets
     cons = {'type': 'eq', 'fun': lambda w: 1 - np.sum(w)}
     warnings.filterwarnings('ignore', category=RuntimeWarning)
-    if VARIANT_OPTIMAL_FUNCTION == 'GMV':
-        optimal_function = calc_glob_min_var
-        args = (cov_matrix)
-    elif VARIANT_OPTIMAL_FUNCTION == 'RP':
-        optimal_function = calc_risk_parity
-        args = (cov_matrix)
-    elif VARIANT_OPTIMAL_FUNCTION == 'DR':
-        optimal_function = calc_negative_diversification_ratio
-        args = (cov_matrix)        
-    else:
-        optimal_function = calc_negative_sharpe
-        args = (means, cov_matrix, current_returns.to_numpy(), risk_free)
+    match VARIANT_OPTIMAL_FUNCTION:
+        case 'GMV':
+            optimal_function = calc_glob_min_var
+            args = (cov_matrix)
+        case 'RP':
+            optimal_function = calc_risk_parity
+            args = (cov_matrix)
+        case 'DR':
+            optimal_function = calc_negative_diversification_ratio
+            args = (cov_matrix) 
+        case 'SR':
+            optimal_function = calc_negative_sharpe
+            args = (means, cov_matrix, current_returns.to_numpy(), risk_free)
+
     result = optimize.minimize(
         optimal_function,
         initial_weights,
@@ -162,19 +169,46 @@ def calculate_portfolio_weights():
     weights_df = weights_df.assign(cash = float(1))
     runtime_df = pd.DataFrame(columns=['Time'], index=data['prices'].index)
     print("Current mode is " + variant_case())
-    if VARIANT_TIME_INTERVAL == 'monthly':
-        df = data['prices_monthly']
-        df_return = data['monthly_returns']
-    elif VARIANT_TIME_INTERVAL == 'weekly':
-        df = data['prices_weekly']
-        df_return = data['weekly_returns']
-    else:
-        df = data['prices']
-        df_return = data['daily_returns']
+
+    match VARIANT_TIME_INTERVAL:
+        case 'yearly':
+            df = data['prices_yearly']
+            df_return = data['yearly_returns']
+        case 'quarterly':
+            df = data['prices_quarterly']
+            df_return = data['quarterly_returns']    
+        case 'monthly':
+            df = data['prices_monthly']
+            df_return = data['monthly_returns']
+        case 'weekly':
+            df = data['prices_weekly']
+            df_return = data['weekly_returns']
+        case 'daily':
+            df = data['prices']
+            df_return = data['daily_returns']
+
     if PARTIAL == True:
         df = df.iloc[:PARTIALPERIOD]
+        df_return = df_return.iloc[:PARTIALPERIOD]
+        weights_df = weights_df.iloc[:PARTIALPERIOD]
+        runtime_df = runtime_df.iloc[:PARTIALPERIOD]
+
+    # For non-daily time interval
+    date_list = []
+
     for idx, date in enumerate(df.index):
         start_time = datetime.datetime.now()
+
+        # Adjust date when the date in weekly/ monthly returns does not fit with actual data file
+        valid = False
+        while valid == False:
+            try: 
+                lookup = data['prices'].loc[date]
+                date_list.append(date)
+                valid = True
+            except:
+                date -= datetime.timedelta(days=1)
+
         rolling_returns = get_rolling_data(df_return, idx)
         try: # Skip first day as there is no return item on first day
             NONNA_Count = rolling_returns.loc[date].count().sum()
@@ -185,21 +219,13 @@ def calculate_portfolio_weights():
         # For control case
         means = rolling_returns.mean()
 
-        # Adjust date when the date in weekly/ monthly returns does not fit with actual data file
-        valid = False
-        while valid == False:
-            try: 
-                lookup = data['prices'].loc[date]
-                valid = True
-            except:
-                date -= datetime.timedelta(days=1)
-
-        if VARIANT_REMOVE_MOMENTUM == False: # Switch to ignore momentum return
+        if VARIANT_REMOVE_MOMENTUM == False: # Filter for ETF with non-positive 90days return
             current_returns = data['avg_returns'].loc[date] * data['returns_90d'].loc[date]
-        else: # Use Rolling return instead for Variant remove momentum case
+        else: # Use Rolling return instead of momentum return for remove momentum Variant case
             current_returns = means
-        if current_returns.fillna(0).sum() <= 0:  # Skip finding weights when no etf passes requirements
+        if current_returns.fillna(0).sum() <= 0:  # Skip finding weights when no ETF passes requirements
             continue
+
         try: # Find the effective risk free rate for the time interval of investing
             if VARIANT_TIME_INTERVAL == 'monthly':
                 time = 12
@@ -211,7 +237,7 @@ def calculate_portfolio_weights():
         except:
             risk_free_rate = 0
        
-        if VARIANT_REMOVE_BMI == False:
+        if VARIANT_REMOVE_BMI == False: # Filter for ETF that does not belongs to strong momentum group according to BMI
             market_index = BoardMarketIndex(os.path.join(file_dir, "ETFs_daily_prices.csv"),
                                             os.path.join(file_dir, "average_momentum_returns.csv"),
                                             date.strftime('%Y-%m-%d'),
@@ -222,17 +248,18 @@ def calculate_portfolio_weights():
             # Identify ETFs with strong momentum
             momentum_flags = np.array([market_index.asset_is_in_strong_momentum_group(etf)
                                        for etf in etf_list])
+            filtered_return = current_returns * momentum_flags
         else:
-            momentum_flags = np.array([1 for etf in etf_list])
-        filtered_return = current_returns * momentum_flags
-        if filtered_return.fillna(0).sum() <= 0:
-            weights_df.loc[date, 'cash'] = 1
+            filtered_return = current_returns
+
+        if filtered_return.fillna(0).sum() <= 0: # Skip finding weights if performance of stock is bad
             continue
 
         # Get top performing ETFs
         top_etfs = get_top_etfs(etf_list, filtered_return)
         if len(top_etfs) <= 1: # Do not invest if there is no suitable ETF; At least invest in two ETFs
             continue
+
         # Optimize weights
         optimal_weights = optimize_weights(rolling_returns[top_etfs], current_returns[top_etfs], risk_free_rate)
 
@@ -252,7 +279,14 @@ def calculate_portfolio_weights():
         progress = (idx + 1) / len(df)
         print( f"\rProcessing {date}: {progress:.1%} [{'#' * int(progress * 100)}{' ' * (100 - int(progress * 100))}] Last runtime: {runtime} Total runtime: {total_runtime}",
               end="")
-    
+    print(date_list)
+    # if VARIANT_TIME_INTERVAL != 'daily':
+    row_count = -1
+    for row in weights_df.index:
+        row_count += 1
+        if row not in date_list:
+            new_row = weights_df.index[row_count - 1]
+            weights_df.loc[row] = weights_df.loc[new_row]
     # Create output files for weights and runtime
     weight_filename = "weight" + variant_case() + ".csv"
     weights_df.to_csv(os.path.join(file_dir, weight_filename))
