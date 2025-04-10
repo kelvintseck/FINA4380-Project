@@ -21,7 +21,7 @@ PARTIALPERIOD = 30
 PARTIAL = False  # Base case: False
 
 # Swithch for variants
-VARIANT_SR_MU = False  # Base Case = False; Variant: True
+VARIANT_SR_MU = True  # Base Case = False; Variant: True
 VARIANT_OPTIMAL_FUNCTION = 'SR'  # Base case: 'SR'; Variants: 'RP', 'GMV', 'DR'
 VARIANT_TIME_INTERVAL = 'quarterly'  # Base case: 'daily'; Variants: 'monthly', 'weekly', 'quarterly', 'yearly'
 VARIANT_REMOVE_MOMENTUM = False # Base case: False; Variant: True # To ignore momentum return in calculation
@@ -39,11 +39,11 @@ def variant_case():
     if VARIANT_TIME_INTERVAL != 'daily':
         case_name += f"_{VARIANT_TIME_INTERVAL}"
     if VARIANT_REMOVE_MOMENTUM == True:
-        case_name += "_Xmomentum"
+        case_name += "_XMomum"
     if VARIANT_REMOVE_BMI == True:
         case_name += "_XBMI"
     if BMI_LEADER_SEARCH_BY != 'highest_abs_correlation':
-        case_name += "_MomenScore"
+        case_name += "_MomumScore"
     if BMI_CORRELATION_THRESHOLD_FOR_GRP != 0.7:
         case_name += f"_GrpCorr{BMI_CORRELATION_THRESHOLD_FOR_GRP}"
     if BMI_MA_PERIOD != 60:
@@ -287,7 +287,7 @@ def calculate_portfolio_weights():
               end="")
 
     if VARIANT_TIME_INTERVAL != 'daily':
-        print("Adjusting weights for non-trading date")
+        print("\nAdjusting weights for non-trading date", end="")
         row_count = -1
         for row in weights_df.index:
             row_count += 1
