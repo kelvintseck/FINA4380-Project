@@ -10,7 +10,7 @@ from scipy.stats import norm
 # Global variables (to be included in the config.py)
 ETF_FILE_NAME = "ETFs_daily_prices.csv"
 RF_FILE_NAME = "riskFree.csv"
-W_FILE_NAME = "weight_SR_MU_AbsCorr_GrpCorr0.7.csv"
+W_FILE_NAME = "weight_control_case_monthly.csv"
 
 
 class Portfolio:
@@ -372,7 +372,7 @@ if __name__ == "__main__":  # For testing and debugging
 
     from visualization import create_portfolio_dashboard
 
-    create_portfolio_dashboard(portfolio, performance, os.path.join(folder_path, f"portfolio_evaluation{W_FILE_NAME[6:]}.html"))
+    create_portfolio_dashboard(portfolio, performance, os.path.join(folder_path, f"portfolio_evaluation{W_FILE_NAME[6:-4]}.html"))
 
 
 
