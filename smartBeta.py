@@ -21,11 +21,12 @@ PARTIALPERIOD = 30
 PARTIAL = False  # Base case: False
 
 # Swithch for variants
-VARIANT_SR_MU = True  # Base Case = False; Variant: True
+VARIANT_SR_MU = False  # Base Case = False; Variant: True
 VARIANT_OPTIMAL_FUNCTION = 'SR'  # Base case: 'SR'; Variants: 'RP', 'GMV', 'DR'
 VARIANT_TIME_INTERVAL = 'quarterly'  # Base case: 'daily'; Variants: 'monthly', 'weekly', 'quarterly', 'yearly'
 VARIANT_REMOVE_MOMENTUM = False # Base case: False; Variant: True # To ignore momentum return in calculation
-VARIANT_REMOVE_BMI = False # Base case: False; Variant: True # To ignore BroadMarketIndex in calculation
+VARIANT_REMOVE_90DAYS = False # Base case: False; Variant: True
+VARIANT_REMOVE_BMI = True # Base case: False; Variant: True # To ignore BroadMarketIndex in calculation
 BMI_LEADER_SEARCH_BY = "highest_abs_correlation" # Base Case = "highest_abs_correlation"; Var: 'highest_momentum_score'
 BMI_CORRELATION_THRESHOLD_FOR_GRP = 0.7 # Base Case = 0.5; Var = 0.5, 0.6
 BMI_MA_PERIOD = 60 # Base Case = 60; Var = 200
@@ -157,6 +158,15 @@ def get_rolling_data(df, current_idx, window=ROLLING_WINDOW):
     start_idx = max(0, current_idx - window)
     return df.iloc[start_idx:current_idx]
 
+@jit(nopython=True)
+def adjust_weight(df, date_list):
+    row_count = -1
+    for row in df.index:
+        row_count += 1
+        if row not in date_list:
+            new_row = df.index[row_count - 1]
+            df.loc[row] = df.loc[new_row]
+    return df
 
 def calculate_portfolio_weights():
     """Main function to calculate and save portfolio weights."""
@@ -220,7 +230,10 @@ def calculate_portfolio_weights():
         means = rolling_returns.mean()
 
         if VARIANT_REMOVE_MOMENTUM == False: # Filter for ETF with non-positive 90days return
-            current_returns = data['avg_returns'].loc[date] * data['returns_90d'].loc[date]
+            if VARIANT_REMOVE_90DAYS == False:
+                current_returns = data['avg_returns'].loc[date] * data['returns_90d'].loc[date]
+            else: 
+                current_returns = data['avg_returns'].loc[date]
         else: # Use Rolling return instead of momentum return for remove momentum Variant case
             current_returns = means
         if current_returns.fillna(0).sum() <= 0:  # Skip finding weights when no ETF passes requirements
@@ -288,12 +301,8 @@ def calculate_portfolio_weights():
 
     if VARIANT_TIME_INTERVAL != 'daily':
         print("\nAdjusting weights for non-trading date", end="")
-        row_count = -1
-        for row in weights_df.index:
-            row_count += 1
-            if row not in date_list:
-                new_row = weights_df.index[row_count - 1]
-                weights_df.loc[row] = weights_df.loc[new_row]
+        weights_df = adjust_weight(weights_df, date_list)
+
     # Create output files for weights and runtime
     weight_filename = "weight" + variant_case() + ".csv"
     weights_df.to_csv(os.path.join(file_dir, weight_filename))
