@@ -43,14 +43,12 @@ def plot_dataframe_comparison(df_list, attribute, save_path, plot_type='line', t
     
     # Plot each DataFrame
     for df, label in zip(df_list, labels):
-        if plot_type == 'line':
-            plt.plot(df.index, df[attribute], label=label)
-        elif plot_type == 'bar':
-            plt.bar(df.index, df[attribute], label=label, alpha=0.5)
-        elif plot_type == 'scatter':
-            plt.scatter(df.index, df[attribute], label=label)
+        if attribute == "Annualized Return" or attribute == "Annualized Volatility" or attribute == "Sortino Ratio":
+            # There are likely to have extreme values during the inital stage
+            filtered_data = df.iloc[252*3:]
+            plt.plot(filtered_data.index, filtered_data[attribute], label=label)
         else:
-            raise ValueError("plot_type must be 'line', 'bar', or 'scatter'")
+            plt.plot(df.index, df[attribute], label=label)
     
     # Customize plot
     plt.title(title if title else f'Comparison of {attribute}')
@@ -61,7 +59,8 @@ def plot_dataframe_comparison(df_list, attribute, save_path, plot_type='line', t
     
     # Save plot
     plt.tight_layout()
-    plt.savefig(save_path)
+    plt.savefig(os.path.join(save_path, title))
+    plt.close()
 
 
 
@@ -72,6 +71,7 @@ if __name__ == "__main__":
     attributes = ["Cumulative Return", "Annualized Return", "Annualized Volatility", "VaR", "Expected Shortfall", "Sharpe Ratio", "Sortino Ratio", "Calmar Ratio", "Max Drawdown", "value"]
 
     saved_folder_path = os.path.join(folder_path, "Comparison Plots")
+    os.makedirs(saved_folder_path, exist_ok = True)
     
     for group in groupsList:
         path_to_folder = os.path.join(folder_path, group)
@@ -87,7 +87,7 @@ if __name__ == "__main__":
                 df_list=[item[0] for item in groups[group]],
                 attribute=attribute,
                 plot_type='line',
-                title=f'Comparison of {attribute} Across DataFrames',
+                title=f'{group}: {attribute} Across DataFrames',
                 xlabel='Date',
                 ylabel=f'{attribute}',
                 labels=[item[1] for item in groups[group]],
