@@ -20,13 +20,10 @@ Update this README.md accordingly if possible.
    
     3.5. `portfolio.advance_date()`
    
-4. **evaluation.py**: Evaluate and visualize the performance
+4. **visualization.py**: Evaluate and visualize the performance
 
 
 -----------------------------------------------------------------------------
-
-### main.py
-- Centralized file for the whole process.
 
 ### dataDownloader.py
 - Filter and download price data of ETFs as *ETFs_daily_prices.csv*
@@ -42,15 +39,9 @@ Update this README.md accordingly if possible.
 ### smartBeta.py
 - Compute the new weights of each asset in the portfolio (and cash)    
 
-### evaluation.py
-- Display the final performance metrics.
-- Visualize the performance of the portfolio through plotly.
-
-### config.py
-- Global variables for variates of our trading algorithm.
-- Every .py files that may variate should import **config.py** and alter the computation accordingly.
-
+### visualization.py
+- Visualize the performance of the portfolio through bokeh, and output a html file.
 -----------------------------------------------------------------------------
 
 ### DCC-GARCH.ipynb
-- No in use
+- No in use due to poor performance 
