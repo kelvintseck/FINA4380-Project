@@ -322,46 +322,55 @@ if __name__ == "__main__":  # For testing and debugging
     folder_path = os.path.dirname(__file__)  # Put this .py file together with .csv files
     file_ETFs = os.path.join(folder_path, ETF_FILE_NAME)  # Contain the historical prices of our stocks universe
     file_rf = os.path.join(folder_path, RF_FILE_NAME)  # Contain the historical annualized riskfree rates
+
     
-    weightsList = ["weight_SR_MU_AbsCorr_GrpCorr0.7.csv"]
+    groups = ["BMI", "Momentum and Filter", "Rebalance frequency", "Smart Beta"]
     
-    for weight_file_name in weightsList:
-        file_weight = os.path.join(folder_path, weight_file_name)
-        portfolio = Portfolio(file_ETFs, file_rf, start_date="2002-03-05", transaction_cost=0.001)
-        weights = pd.read_csv(file_weight, index_col=0)[1500:].to_dict(orient='list')  # start to have valid data (non 0 weights) around 1500
+    for group in groups:
+        path_to_folder = os.path.join(folder_path, group)
+        csvFileList = os.listdir(path_to_folder)
+        for filename in csvFileList:
+            if filename.endswith('.csv') and not filename.startswith('performance'):
+                file_weight = os.path.join(path_to_folder, filename)
+                print(f"Processing CSV file: {filename}")
+            else:
+                continue
         
-        prev_weight = {}
-        for i in range(len(weights["cash"])):
-            print(f"\r\r processing {portfolio.current_date.date()}", end="")
-            cur_weight = {}
-            for key in weights.keys():
-                cur_weight[key] = weights[key][i]
-            if prev_weight != cur_weight:           # update the weights iff they are explicitly different 
-                portfolio.rebalance(cur_weight)
-            prev_weight = cur_weight
-            try:
-                portfolio.advance_date()
-            except ValueError:                      # until the last day of the .csv file
-                break
+            portfolio = Portfolio(file_ETFs, file_rf, start_date="2002-03-05", transaction_cost=0.001)
+            weights = pd.read_csv(file_weight, index_col=0)[1500:].to_dict(orient='list')  # start to have valid data (non 0 weights) around 1500
+            
+            prev_weight = {}
+            for i in range(len(weights["cash"])):
+                print(f"\r\r Processing {portfolio.current_date.date()}", end="")
+                cur_weight = {}
+                for key in weights.keys():
+                    cur_weight[key] = weights[key][i]
+                if prev_weight != cur_weight:           # update the weights iff they are explicitly different 
+                    portfolio.rebalance(cur_weight)
+                prev_weight = cur_weight
+                try:
+                    portfolio.advance_date()
+                except ValueError:                      # until the last day of the .csv file
+                    break
 
-        all = portfolio.get_history()
-        for key, df in all.items():
-            print("=" * 40 + f"  {key}  " + "=" * 40)
-            with pd.option_context('display.float_format', '{:.10}'.format):
-                display(df)
+            all = portfolio.get_history()
+            for key, df in all.items():
+                print("=" * 40 + f"  {key}  " + "=" * 40)
+                with pd.option_context('display.float_format', '{:.10}'.format):
+                    display(df)
 
-        performance = portfolio.compute_daily_metrics()
-        display(performance)
-        
-        fileName = weight_file_name.lstrip("weight_").rstrip(".csv")
-        performance["value"] = portfolio.value
-        performance["cash"] = portfolio.cash
-        performance["asset value"] = portfolio.value - portfolio.cash
-        # save the metircs as .csv file
-        performance.to_csv(os.path.join(folder_path, f"performance_metrics_{fileName}.csv"))
-        
-        from visualization import create_portfolio_dashboard
-        create_portfolio_dashboard(portfolio, performance, os.path.join(folder_path, f"portfolio_evaluation_{fileName}.html"))
-
+            performance = portfolio.compute_daily_metrics()
+            display(performance)
+            
+            fileName = filename.lstrip("weight_").rstrip(".csv")
+            performance["value"] = portfolio.value
+            performance["cash"] = portfolio.cash
+            performance["asset value"] = portfolio.value - portfolio.cash
+            # save the metircs as .csv file
+            performance.to_csv(os.path.join(path_to_folder, f"performance_metrics_{fileName}.csv"))
+            
+            from visualization import create_portfolio_dashboard
+            create_portfolio_dashboard(portfolio, performance, os.path.join(path_to_folder, f"portfolio_evaluation_{fileName}.html"))
+            print(f"portfolio_evaluation_{fileName}.html saved successfully")
 
 
