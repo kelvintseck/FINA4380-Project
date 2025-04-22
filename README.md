@@ -19,8 +19,9 @@
    
     3.5. `portfolio.advance_date()`
    
-4. **visualization.py**: Visualize the performance
+4. **visualization.py**: Visualize the performance of a strategy, output .html file.
 
+5. **comparison_visualization.py**: Visualize performances of different strategies.
 
 -----------------------------------------------------------------------------
 
@@ -40,6 +41,9 @@
 
 ### visualization.py
 - Visualize the performance of the portfolio through bokeh, and output a html file.
+
+### comparison_visualization.py
+- Visualize performances of different strategies.
 -----------------------------------------------------------------------------
 
 ### DCC-GARCH.ipynb
