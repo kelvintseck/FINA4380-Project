@@ -1,7 +1,6 @@
-# FINA4380A Algorithmic Trading Strategies, Arbitrage and HFT - Trading Algorithm Project
-Please directly upload the latest .py files or .csv files to the main branch.    
-No need to worry about overlapping with the existing older version .py files.    
-Update this README.md accordingly if possible.
+# FINA4380A Algorithmic Trading Strategies, Arbitrage and HFT - Trading Algorithm Project    
+# Algorithmic Trading Strategy for ETF Portfolios Combining Momentum, Correlation, and Smart Beta Optimization 
+
 
 ## Process
 1. **dataDownloader.py**: Filter and download price data of ETFs as *ETFs_daily_prices.csv*
@@ -20,7 +19,7 @@ Update this README.md accordingly if possible.
    
     3.5. `portfolio.advance_date()`
    
-4. **visualization.py**: Evaluate and visualize the performance
+4. **visualization.py**: Visualize the performance
 
 
 -----------------------------------------------------------------------------
@@ -44,4 +43,4 @@ Update this README.md accordingly if possible.
 -----------------------------------------------------------------------------
 
 ### DCC-GARCH.ipynb
-- No in use due to poor performance 
+- Not in use due to fail in removing correlations between residuals
