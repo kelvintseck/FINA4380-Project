@@ -24,7 +24,7 @@ Folder in the main branch contains the weights and results for variants.
 - Comparison Plots 
     - Plots of performance metrics of intra-group strategies.
 - runtime 
-    - .csv files that record the running time of our **smartbeta.py** at each trading day (just for fun)
+    - .csv files that record the running time of our **smartBeta.py** at each trading day (just for fun)
 
 
 -----------------------------------------------------------------------------
