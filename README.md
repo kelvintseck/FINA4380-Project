@@ -11,8 +11,21 @@
 5. **visualization.py**: Visualize the performance of a strategy, output .html file.
 6. **comparison_visualization.py**: Visualize performances of different strategies.
 
-Folder in the main branch contains the results for variants.
-- BMI: 
+Folder in the main branch contains the weights and results for variants.
+- BMI (Market Breadth Index)
+    - Variates of different thresholds of correlation and moving average window sizes.
+- Momentum and Filter
+    - Control cases where we remove Market Breadth Index filtering, momentum scoring, and 90-day return thresholds.
+- Rebalance frequency
+    - Variates of rebalance frequencies, including daily, ,weekly,  monthly, yearly. 
+- Smart Beta
+    - Sharpe ratio replaced by momentum returns, original Sharpe ratio, global minimum variance, risk parity, diversification ratio, 
+
+- Comparison Plots 
+    - Plots of performance metrics of intra-group strategies.
+- runtime 
+    - .csv files that record the running time of our **smartbeta.py** at each trading day (just for fun)
+
 
 -----------------------------------------------------------------------------
 
