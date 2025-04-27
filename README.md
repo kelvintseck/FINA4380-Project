@@ -4,27 +4,15 @@
 
 ## Process
 1. **dataDownloader.py**: Filter and download price data of ETFs as *ETFs_daily_prices.csv*
-   
-2. **portfolio.py**: Initialize a `portfolio` object by reading the *ETFs_daily_prices.csv* file
-   
-3. For each trading timepoint:
-   
-    3.1. Get current or historical data (including prices, weights etc.) from `portfolio`
-   
-    3.2. **boardMarketIndex.py**: Read the historical data, separate the ETFs into different groups as an initial assets selection
-   
-    3.3. **smartBeta.py**: Compute the new weights of each asset in the portfolio (and cash)
+2. **boardMarketIndex.py**: Read the historical data, separate the ETFs into different groups as an initial assets selection
+3. **smartBeta.py**: Compute the new weights of each asset in the portfolio (and cash)
    - calls **boardMarketIndex.py** for each trading date. 
-   
-    3.4. **portfolio.py**: Simulate the trading with the given weights
-   
-    3.5. `portfolio.advance_date()`
-   
+4. **portfolio.py**: Initialize a `portfolio` object by reading the *ETFs_daily_prices.csv* file. Simulate the trading by reading the assigned weights genereated by **smartBeta.py**.
 5. **visualization.py**: Visualize the performance of a strategy, output .html file.
-
 6. **comparison_visualization.py**: Visualize performances of different strategies.
 
-7. Folder in the main branch contains the results for variants.
+Folder in the main branch contains the results for variants.
+- BMI: 
 
 -----------------------------------------------------------------------------
 
